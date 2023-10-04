@@ -1,0 +1,458 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: A simple serverless application with an S3 bucket
+
+Resources:
+
+  KlouditUserPool:
+    Type: "AWS::Cognito::UserPool"
+    Properties:
+      UserPoolName: "KlouditUserPool"
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: TRUE
+          RequireLowercase: TRUE
+          RequireNumbers: TRUE
+          RequireSymbols: TRUE
+
+  KlouditUserPoolClient:
+    Type: "AWS::Cognito::UserPoolClient"
+    Properties:
+      UserPoolId: !Ref KlouditUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - "ALLOW_USER_SRP_AUTH"
+        - "ALLOW_REFRESH_TOKEN_AUTH"
+        - "ALLOW_ADMIN_USER_PASSWORD_AUTH"
+        - "ALLOW_USER_PASSWORD_AUTH"
+
+  CognitoAPIAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties: 
+      Name: CognitoAPIAuthorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      RestApiId: 
+        Ref: MyApi
+      ProviderARNs: 
+        - Fn::GetAtt: [KlouditUserPool, Arn]
+
+  MyBucket:
+    Type: AWS::S3::Bucket
+  BlogPostsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Posts
+      AttributeDefinitions:
+        - AttributeName: postID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: postID
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  LikesDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Likes
+      AttributeDefinitions:
+        - AttributeName: postID
+          AttributeType: S  
+        - AttributeName: userID
+          AttributeType: S  
+      KeySchema:
+        - AttributeName: postID
+          KeyType: HASH  
+        - AttributeName: userID
+          KeyType: RANGE  
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5  
+        WriteCapacityUnits: 5  
+  CommentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Comments
+      AttributeDefinitions:
+        - AttributeName: postID
+          AttributeType: S
+        - AttributeName: commentID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: postID
+          KeyType: HASH
+        - AttributeName: commentID
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      GlobalSecondaryIndexes:
+        - IndexName: CommentIDIndex
+          KeySchema:
+            - AttributeName: commentID
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+  CommentLikesTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: "CommentLikes"
+      AttributeDefinitions:
+        - AttributeName: "commentID"
+          AttributeType: "S"
+        - AttributeName: "userID"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "commentID"
+          KeyType: "HASH"
+        - AttributeName: "userID"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/hello.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  CreatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/createPost.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  ListAllPostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/listAllPosts.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  GetPostByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/getPostById.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  UpdatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/updatePost.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  DeletePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/deletePost.handler
+      Runtime: nodejs14.x
+      CodeUri: dist/
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  LikeFunction:   
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/likePost.handler  
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LikesDynamoDBTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  CommentPostFunction:   
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/commentPost.handler  
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable
+
+  ListCommentsFunction:   
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/listComments.handler  
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlogPostsTable 
+
+  LikeCommentFunction:   
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/toggleLikeComment.handler 
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentLikesTable
+
+  EditCommentFunction:   
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/editComment.handler  
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentLikesTable
+
+  DeleteCommentFunction:  
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/deleteComment.handler 
+      Runtime: nodejs14.x
+      CodeUri: ./
+      Policies: 
+        - AWSLambdaExecute 
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CommentLikesTable
+
+  MyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAPIAuthorizer
+        Authorizers:
+          CognitoAPIAuthorizer:
+            UserPoolArn:
+              Fn::GetAtt: [KlouditUserPool, Arn]
+      DefinitionBody:
+        swagger: "2.0"
+        info:
+          title: "My API"
+          version: "1.0"
+        paths:
+          /hello:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloWorldFunction.Arn}/invocations
+              responses: {}
+          /post:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreatePostFunction.Arn}/invocations
+              responses: {}
+          /listposts:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListAllPostsFunction.Arn}/invocations
+              responses: {}
+          /posts/{postID}:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetPostByIdFunction.Arn}/invocations
+              responses: {}
+            put:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdatePostFunction.Arn}/invocations
+              responses: {}
+            delete:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeletePostFunction.Arn}/invocations
+              responses: {}
+
+          /posts/{postID}/like:   
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LikeFunction.Arn}/invocations
+              responses: {}
+
+          /posts/comment:   
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CommentPostFunction.Arn}/invocations
+              responses: {}
+
+          /comments/{postID}/listComments:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ListCommentsFunction.Arn}/invocations
+              responses: {}
+
+          /comments/{postID}/{commentID}/like:   
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LikeCommentFunction.Arn}/invocations
+              responses: {}
+        
+          /comments/{postID}/{commentID}/edit:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${EditCommentFunction.Arn}/invocations
+              responses: {}
+
+          /comments/{postID}/{commentID}/delete:
+            delete:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteCommentFunction.Arn}/invocations
+              responses: {}
+
+  LambdaApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref HelloWorldFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaCreatePostApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CreatePostFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaListAllPostsApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ListAllPostsFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaGetPostByIdApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GetPostByIdFunction
+      Principal: apigateway.amazonaws.com
+ 
+  LambdaUpdatePostApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref UpdatePostFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaDeletePostApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DeletePostFunction
+      Principal: apigateway.amazonaws.com
+      
+  LambdaLikeApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LikeFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaCommentApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CommentPostFunction
+      Principal: apigateway.amazonaws.com
+      
+  LambdaLikeCommentApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LikeCommentFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaEditCommentApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EditCommentFunction
+      Principal: apigateway.amazonaws.com
+
+  LambdaDeleteCommentApiGatewayInvoke:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DeleteCommentFunction
+      Principal: apigateway.amazonaws.com
+
+      #

@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo Installing SAM CLI and TypeScript...
+      - pip install aws-sam-cli
+      - npm install -g typescript
+      - npm install 
+  pre_build:
+    commands:
+      - echo Transpiling TypeScript...
+      - tsc 
+  build:
+    commands:
+      - echo Packaging SAM application...
+      - sam build --template-file stacktemplate.yaml 
+      - sam package --template-file .aws-sam/build/template.yaml --s3-bucket kloudit-sam-application --output-template-file packaged-template.yaml
+
+artifacts:
+  files:
+    - packaged-template.yaml
